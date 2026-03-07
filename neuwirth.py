@@ -1,12 +1,5 @@
 #Want to build function that generates an admissible permutation A from a given (balanced) group presentation
-
-
 #first, we start by defining a buch of convenient functions for the exact data format we will be using
-
-import itertools
-from sage.groups.perm_gps.permgroup import PermutationGroup, SymmetricGroup
-from sage.groups.perm_gps.permgroup_element import Permutation
-#from sage.rings.integer import Integer
 
 def read_j(elem):
     return int(elem.split(',')[1][:-1])
@@ -203,7 +196,7 @@ def admissible(gen,rel):
         else:
             Output+=to_e_notation(entry)+')'
 
-    print(Output)
+    #print(Output)
     
     """
 
@@ -294,206 +287,17 @@ def C(prevalences, nr_gens):
 
 
 
-def stream_permutations(lists):
-    # Create a generator for the Cartesian product of permutations for each list
-    for perm in itertools.product(*(itertools.permutations(lst) for lst in lists)):
-        yield perm
 
-def stream_permutations_mod_cyclic(lists):
-        # Create a generator for the Cartesian product of adjusted permutations
-        for perm in itertools.product(*([[lst[0]] + list(p) for p in itertools.permutations(lst[1:])] for lst in lists)):
-            yield perm
 
-def tcycles(P):
-    #returns the number of orbits/transitivity cycles of a permutation
-    return len(P.cycle_type())
 
-def count_orbits(perm1, perm2):
-    # Create the permutation group from the two permutations
-    G = PermutationGroup([perm1, perm2])
+
+
+
+
+ 
+
     
-    # Create a set to keep track of the orbits
-    orbits = G.orbits()
 
-    # Return the number of orbits
-    return len(orbits)
-
-def count_orbits_3(perm1, perm2, perm3):
-    # Create the permutation group from the three permutations
-    G = PermutationGroup([perm1, perm2, perm3])
-    
-    # Create a set to keep track of the orbits
-    orbits = G.orbits()
-
-    # Return the number of orbits
-    return len(orbits)
-
-def L_One_Case(A,B,C):
-    #first we check if |A,C|=1, i.e. that L=1   
-    assert count_orbits(A,C)==1
-
-    # Compute the permutations AC and BC, respectively. Note: C is applied last.
-    AC=A.right_action_product(C)
-    BC=B.right_action_product(C)
-
-
-    # Check the two conditions in the L=1 case of Neuwirth's algorithm
-    if count_orbits(AC,BC)==1 and tcycles(A)-tcycles(C)+2==tcycles(AC):
-        return True
-
-    # If it is not true, then we return false
-    return False
-
-def construct_F(A,C):
-    G = PermutationGroup([A, C])
-
-    # We start writing down the only non-trivial cycle in F
-    F_build='('
-
-    for orbit in G.orbits():
-        # Pick out the largest integer in each cycle of (A,C) - this will guarantee the correct size of F
-        F_build+=str(orbit[-1])+','
-
-    # Delete the extra comma and close the bracket
-    F_build = F_build[:-1]+')'
-
-    return Permutation(F_build)
-
-def L_More_Than_One_Case(A,B,C):
-    # Compute L
-    L=count_orbits(A,C)
-
-    # Compute the permutations AC and BC, respectively. Note: C is applied last.
-    AC=A.right_action_product(C)
-    BC=B.right_action_product(C)
-
-    # Build the additional permutation F
-    F=construct_F(A,C)
-
-    # Check the two conditions in the L>1 case of Neuwirth's algorithm
-    if count_orbits_3(AC,BC,F)==1 and tcycles(A)-tcycles(C)+2*L==tcycles(AC):
-        return True
-
-    # If it is not true, then we return false
-    return False   
-
-def AllPermutationsOfPartition(partition, items=[]):
-    # WE DO NOT WANT TO USE THIS - SAVING IN A LIST REQUIRES TOO MUCH RAM SOMETIMES
-    """
-    Generate all permutations of a given partition [x_1,x_2,...,x_g].
-    
-    Args:
-    partition: A list of integers representing the sizes of parts in the partition.
-    
-    Returns:
-    A list of all distinct permutations of the partition.
-    """
-    #from sage.groups.perm import Permutation, PermutationGroup
-    #from sage.all import symmetric_group
-
-    #X=[list(range(sum(partition[:idx])+1, sum(partition[:idx])+n_i+1)) for idx,n_i in enumerate(partition)]
-
-    if partition==[]:
-        return [list(e) for e in items]
-
-    else:
-        collection=[]
-        x_top=partition.pop()
-        S_n=SymmetricGroup(len(x_top))
-        for perm in S_n:
-            if items==[]:
-                collection.append(tuple(perm(x_top)))
-            else:
-                for item in items:
-                    collection.append(tuple(perm(x_top))+item)
-        return AllPermutationsOfPartition(partition, collection)
-    
-def bar_reflection(reordering):
-    # bar_reflection might be a bad name for this function...
-    
-    # Takes a list of integers as input, i.e. value table
-    # Check the length to know how much we need to shift
-    n=len(reordering)
-    
-    # Return the input concatenated with a shifted inverse of itself
-    # This is a value table
-    return reordering + [n+e for e in list(Permutation(reordering))]
-
-def first_half(lst):
-    # Make sure that the list has an even number of entries
-    assert len(lst)%2==0
-    
-    # Return the first half of the list
-    return lst[:len(lst)//2]
-
-def exists_2_spine(A,B,C):
-    # We make a list of the unbarred cycles of C (a partition of the unbarred elements)
-    PC=[list(p) for p in first_half(C.to_cycles())]
-
-    # Loop through all permutations that stay in their partition blocks - now we mod out cyclicity
-    for config in stream_permutations_mod_cyclic(PC):
-        # In value table form - removing "inner brackets" of the tuple and making it into a list
-        v_tab=[e for block in config for e in block]
-
-        # Extend to a permutation that is compatible on the unbarred and barred elements
-        re_ordering=bar_reflection(v_tab)
-
-        # Use the permutation class in SAGE
-        p=Permutation(re_ordering)
-
-        # Check if this particular datum yields a thickening to a 3-manifold
-        # We are conjugating A with p to get another admissible A
-        
-        try: 
-            if L_One_Case(p.right_action_product(A).right_action_product(p.inverse()),B,C):
-                # Print the result
-                print('THE FOLLOWING CONFIGURATION YIELDS A SPINE:\n')
-
-                # Print which reordering we used and show it
-                print('Reordering permutation: ', p);p.show()
-
-                # Print the involution A we used
-                print('Involution A: ', p.right_action_product(A).right_action_product(p.inverse()))
-                p.right_action_product(A).right_action_product(p.inverse()).show()
-
-                return True
-
-        except:
-            if L_More_Than_One_Case(p.right_action_product(A).right_action_product(p.inverse()),B,C):
-                # Print the result
-                print('THE FOLLOWING CONFIGURATION YIELDS A SPINE:\n')
-
-                # Print which reordering we used and show it
-                print('Reordering permutation: ', p);p.show()
-
-                # Print the involution A we used
-                print('Involution A: ', p.right_action_product(A).right_action_product(p.inverse()))
-                p.right_action_product(A).right_action_product(p.inverse()).show()
-
-                return True
-
-    # If no configuration works then there is no thickening to a 3-manifold
-    return False
-
-def check(A,B,C):
-    # This may require too much RAM
-    
-    PartCycles=[list(p) for p in first_half(C.to_cycles())] #this might be problematic if we have cycles of len=1 -> (1,),...
-    Parts=AllPermutationsOfPartition(PartCycles)
-    reordering=[bar_reflection(half) for half in Parts] #admissible re-orderings
-
-    for perm in reordering:
-        p=Permutation(perm)
-
-        if L_One_Case(p.right_action_product(A).right_action_product(p.inverse()),B,C):
-            print('THE FOLLOWING CONFIGURATION YIELDS A SPINE:\n')
-            print('Reordering permutation: ', p);p.show()
-            print('Involution A: ', p.right_action_product(A).right_action_product(p.inverse()))
-            p.right_action_product(A).right_action_product(p.inverse()).show()
-
-            return True
-            
-    return False
 
 def copy_paste_to_nb(gen, rel):
     info="#("+rel[0]+","+rel[1]+")"
@@ -508,55 +312,46 @@ def copy_paste_to_nb(gen, rel):
 
 def main():
     #(abAA,BBB) - dummy test
-    A=Permutation('(8,4)(11,9)(2,10)(3,1)(5,13)(6,14)(7,12)')
-    B=Permutation('(1,8)(2,9)(3,10)(4,11)(5,12)(6,13)(7,14)')
-    C=Permutation('(1,2,3)(10,9,8)(4,5,6,7)(14,13,12,11)')
+    #A=Permutation('(8,4)(11,9)(2,10)(3,1)(5,13)(6,14)(7,12)')
+    #B=Permutation('(1,8)(2,9)(3,10)(4,11)(5,12)(6,13)(7,14)')
+    #C=Permutation('(1,2,3)(10,9,8)(4,5,6,7)(14,13,12,11)')
 
-    exists_2_spine(A,B,C)
+    #exists_2_spine(A,B,C)
 
+    copy_paste_to_nb([['a','A'],['b','B']],['aaBBB', 'ABAbab'])
+    copy_paste_to_nb([['a','A'],['b','B']],['aBBBa', 'BAbabA'])
+    copy_paste_to_nb([['a','A'],['b','B']],['aBBBa', 'BAbaBBa'])
+    copy_paste_to_nb([['a','A'],['b','B']],['aBBBa', 'AbaBBaB'])
+    copy_paste_to_nb([['a','A'],['b','B']],['aBBaBBaB', 'AbaBBaB'])
+    copy_paste_to_nb([['a','A'],['b','B']],['aBBaBBaB', 'BabAbbA'])
+    copy_paste_to_nb([['a','A'],['b','B']],['aBBaBBaB', 'BaBaB'])
+    copy_paste_to_nb([['a','A'],['b','B']],['BBaBBaBa', 'AbAbb'])
+    copy_paste_to_nb([['a','A'],['b','B']],['BBa', 'AbAbb'])
+    copy_paste_to_nb([['a','A'],['b','B']],['BBa', 'Ab'])
+    copy_paste_to_nb([['a','A'],['b','B']],['B', 'Ab'])
+    copy_paste_to_nb([['a','A'],['b','B']],['B', 'A'])
 
-    for p in stream_permutations_mod_cyclic([[1,2,3,4],[5,6,7]]):
-        print(p)
 
 
 
 if __name__=='__main__':
     main()
+
+
     """
+    # This is the trivialisation sequence that we checked in the paper
+    copy_paste_to_nb([['a','A'],['b','B']],['aaBBB', 'ABAbab']) #0
+    copy_paste_to_nb([['a','A'],['b','B']],['aBBBa', 'BAbabA'])
+    copy_paste_to_nb([['a','A'],['b','B']],['aBBBa', 'BAbaBBa'])
+    copy_paste_to_nb([['a','A'],['b','B']],['aBBBa', 'AbaBBaB'])
+    copy_paste_to_nb([['a','A'],['b','B']],['aBBaBBaB', 'AbaBBaB'])
+    copy_paste_to_nb([['a','A'],['b','B']],['aBBaBBaB', 'BabAbbA'])
+    copy_paste_to_nb([['a','A'],['b','B']],['aBBaBBaB', 'BaBaB'])
+    copy_paste_to_nb([['a','A'],['b','B']],['BBaBBaBa', 'AbAbb'])
+    copy_paste_to_nb([['a','A'],['b','B']],['BBa', 'AbAbb'])
     copy_paste_to_nb([['a','A'],['b','B']],['BBa', 'Ab'])
-    copy_paste_to_nb([['a','A'],['b','B']],['abAA', 'BBB'])
-
-
-    copy_paste_to_nb([['a','A'],['b','B']],['baBAA', 'AbbaBBB']) #0
-    copy_paste_to_nb([['a','A'],['b','B']],['baBAA', 'bbaBBBA'])
-    copy_paste_to_nb([['a','A'],['b','B']],['baBAA', 'abbbABB'])
-    copy_paste_to_nb([['a','A'],['b','B']],['baBAA', 'BabbbAB'])
-    copy_paste_to_nb([['a','A'],['b','B']],['baBAA', 'BabbAA'])
-    copy_paste_to_nb([['a','A'],['b','B']],['bABaa', 'BAbbaa']) #5
-    copy_paste_to_nb([['a','A'],['b','B']],['bABaa', 'AbbaaB'])
-    copy_paste_to_nb([['a','A'],['b','B']],['bABaa', 'AbbaBaa'])
-    copy_paste_to_nb([['a','A'],['b','B']],['bABaa', 'abbaB'])
-    copy_paste_to_nb([['a','A'],['b','B']],['bABaa', 'abaa'])
-    copy_paste_to_nb([['a','A'],['b','B']],['bABaa', 'AABA']) #10
-    copy_paste_to_nb([['a','A'],['b','B']],['bABaa', 'BA'])
-    copy_paste_to_nb([['a','A'],['b','B']],['bABaa', 'ab'])
-    copy_paste_to_nb([['a','A'],['b','B']],['AAbaB', 'ab'])
-    copy_paste_to_nb([['a','A'],['b','B']],['AAbaB', 'ba'])
-    copy_paste_to_nb([['a','A'],['b','B']],['AAbaa', 'ba']) #15
-    copy_paste_to_nb([['a','A'],['b','B']],['b', 'ba'])
-    copy_paste_to_nb([['a','A'],['b','B']],['b', 'AB'])
-    copy_paste_to_nb([['a','A'],['b','B']],['b', 'A'])
-    copy_paste_to_nb([['a','A'],['b','B']],['b', 'a'])
-
-    print('---NEW SEQUENCE---')
-
-    copy_paste_to_nb([['a','A'],['b','B']],['AbbaBBB', 'aaBAB']) #0
-    copy_paste_to_nb([['a','A'],['b','B']],['bbaBBBA', 'aaBAB'])
-    copy_paste_to_nb([['a','A'],['b','B']],['bbaBBBaBAB', 'aaBAB'])
-    copy_paste_to_nb([['a','A'],['b','B']],['bbaBBBaBAB', 'BaaBA'])
-    copy_paste_to_nb([['a','A'],['b','B']],['aBBBaBAb', 'BaaBA'])
-    copy_paste_to_nb([['a','A'],['b','B']],['aBBBaBaBA', 'BaaBA']) #5
-    copy_paste_to_nb([['a','A'],['b','B']],['aBBBaBaBA', 'aBABa'])
+    copy_paste_to_nb([['a','A'],['b','B']],['B', 'Ab'])
+    copy_paste_to_nb([['a','A'],['b','B']],['B', 'A'])
     """
 
     
