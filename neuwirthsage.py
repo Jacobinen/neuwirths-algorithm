@@ -1,4 +1,9 @@
 import itertools
+import neuwirth as nw
+import sage.all # Needed to avoid circular dependencies
+from sage.groups.perm_gps.permgroup import PermutationGroup
+from sage.combinat.permutation import Permutation
+#from sage.rings.integer import Integer
 
 # Import SAGE tools here without circular conflict
 
@@ -120,7 +125,8 @@ def exists_2_spine(A,B,C):
                 print('THE FOLLOWING CONFIGURATION YIELDS A SPINE:\n')
 
                 # Print which reordering we used and show it
-                print('Reordering permutation: ', p);p.show()
+                print('Reordering permutation: ', p)
+                p.show()
 
                 # Print the involution A we used
                 print('Involution A: ', p.right_action_product(A).right_action_product(p.inverse()))
@@ -134,7 +140,8 @@ def exists_2_spine(A,B,C):
                 print('THE FOLLOWING CONFIGURATION YIELDS A SPINE:\n')
 
                 # Print which reordering we used and show it
-                print('Reordering permutation: ', p);p.show()
+                print('Reordering permutation: ', p)
+                p.show()
 
                 # Print the involution A we used
                 print('Involution A: ', p.right_action_product(A).right_action_product(p.inverse()))
@@ -145,9 +152,42 @@ def exists_2_spine(A,B,C):
     # If no configuration works then there is no thickening to a 3-manifold
     return False
 
+def check_presentation(gen, rel):
+    """We take a balanced presentation as input. Ex: gen=[['a','A'],['b','B']] where A:=a^-1,
+    rel=['aaBBB','ABAbab']. Need the inputs to be arrays of strings."""
+
+    prev = nw.prevalences(gen, rel)
+
+    A = Permutation(nw.admissible(gen,rel))
+    B = Permutation(nw.B(sum(prev)))
+    C = Permutation(nw.C(prev,len(prev)))
+
+    return exists_2_spine(A,B,C)
+
+
+def main():
+    #A=Permutation('(12,2)(13,17)(6,18)(7,19)(8,1)(3,20)(9,15)(4,10)(21,5)(16,11)(22,14)')
+    #B=Permutation('(1,12)(2,13)(3,14)(4,15)(5,16)(6,17)(7,18)(8,19)(9,20)(10,21)(11,22)')
+    #C=Permutation('(1,2,3,4,5)(16,15,14,13,12)(6,7,8,9,10,11)(22,21,20,19,18,17)')
+
+    print(check_presentation([['a','A'],['b','B']],['aaBBB','ABAbab']))
+    print(check_presentation([['a','A'],['b','B']],['aBBBa', 'BAbabA']))
+    print(check_presentation([['a','A'],['b','B']],['aBBBa', 'BAbaBBa']))
+    print(check_presentation([['a','A'],['b','B']],['aBBBa', 'AbaBBaB']))
+    print(check_presentation([['a','A'],['b','B']],['aBBaBBaB', 'AbaBBaB']))
+    print(check_presentation([['a','A'],['b','B']],['aBBaBBaB', 'BabAbbA']))
+    print(check_presentation([['a','A'],['b','B']],['aBBaBBaB', 'BaBaB']))
+    print(check_presentation([['a','A'],['b','B']],['BBaBBaBa', 'AbAbb']))
+    print(check_presentation([['a','A'],['b','B']],['BBa', 'AbAbb']))
+    print(check_presentation([['a','A'],['b','B']],['BBa', 'Ab']))
+    print(check_presentation([['a','A'],['b','B']],['B', 'Ab']))
+    print(check_presentation([['a','A'],['b','B']],['B', 'A']))
 
 
 
+
+if __name__=='__main__':
+    main()
 
 
 

@@ -1,9 +1,11 @@
 This repository contains an code that is able to check if the presentation complex of a balanced group presentation is the spine of a closed orientable connected 3-manifold using Neuwirth's algorithm.
 
-HOW TO USE: For a balanced group presentation $\langle a_1,...,a_g \mid r_1,...,r_g\rangle$ that you want to check, start by adopting the naming convention that the i-th generator is the i-th letter of the English alphabet. If $g=4$, input the list [['a','A'],['b','B'],['c','C'],['d','D']] into the first argument of the function copy_paste_to_nb function (and similarly for other values of $g$). For the second argument of the copy_paste_to_nb function you input a list of strings that consists of your relations written as a sequence of your specified letters, where the capitalised version is the inverse of the small letter. 
+HOW TO USE: 
 
-Example: for the balanced group persentation $\langle a, b \mid b^{-2}a, a^{-1}b\rangle$, you paste copy_paste_to_nb([['a','A'],['b','B']],['BBa', 'Ab']) into the main() function of neuwirth.py script and run the code. 
+Option 1 (using a sage virtual environment): For a balanced group presentation $\langle a_1,...,a_g \mid r_1,...,r_g\rangle$ that you want to check, start by adopting the naming convention that the i-th generator is the i-th letter of the English alphabet. If $g=4$, input the list [['a','A'],['b','B'],['c','C'],['d','D']] into the first argument of the check_presentation function (and similarly for other values of $g$). For the second argument of the check_presentation function you input a list of strings that consists of your relations written as a sequence of your specified letters, where the capitalised version is the inverse of the small letter. 
 
-Then, open neuwirthsalgorithm.ipynb notebook using a SAGE kernel. Paste the result of the copy_paste_to_nb function into a cell beneath the first 23 cells. Finally, write exists_2_spine(A,B,C) in the subsequent cell and execute the entire notebook. 
+Example: for the balanced group persentation $\langle a, b \mid b^{-2}a, a^{-1}b\rangle$, you place check_presentation([['a','A'],['b','B']],['BBa', 'Ab']) in the into the main() function of the neuwirthsage.py script and run the code in a sage virtual environment. 
+
+Option 2 (using a SAGE kernel in a Jypyter notebook): Alternatively, if you can't get a setup of a sage virtual environment to work you can start by running copy_paste_to_nb() with the same input as check_presentation() would receive in neuwirth.py and copy pasting the result into the neuwirthsalgorithm.ipynb notebook in the indicated code cell and execute the entire notebook using a SAGE kernel.
 
 

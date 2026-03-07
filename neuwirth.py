@@ -173,7 +173,7 @@ def admissible(gen,rel):
     #print(A) #now we essentiall have the permutation. Todo: transform it into cycle notation with integers so that Mathematica can handle it.
         
 
-    Output="A=Permutation('"
+    Output=""
 
     for idx, entry in enumerate(A):
         if idx%2==0:
@@ -184,8 +184,11 @@ def admissible(gen,rel):
             Output+=str(translate_to_integer(entry, prevalences))+')'
     
 
+    if __name__=='__main__':
+        print("A=Permutation('"+Output+"')")
+    return Output
 
-    print(Output+"')")
+
 
     
     Output=''
@@ -311,25 +314,9 @@ def copy_paste_to_nb(gen, rel):
 
 
 def main():
-    #(abAA,BBB) - dummy test
-    #A=Permutation('(8,4)(11,9)(2,10)(3,1)(5,13)(6,14)(7,12)')
-    #B=Permutation('(1,8)(2,9)(3,10)(4,11)(5,12)(6,13)(7,14)')
-    #C=Permutation('(1,2,3)(10,9,8)(4,5,6,7)(14,13,12,11)')
-
-    #exists_2_spine(A,B,C)
-
+    # Replace with the group presentation that you want to check
     copy_paste_to_nb([['a','A'],['b','B']],['aaBBB', 'ABAbab'])
-    copy_paste_to_nb([['a','A'],['b','B']],['aBBBa', 'BAbabA'])
-    copy_paste_to_nb([['a','A'],['b','B']],['aBBBa', 'BAbaBBa'])
-    copy_paste_to_nb([['a','A'],['b','B']],['aBBBa', 'AbaBBaB'])
-    copy_paste_to_nb([['a','A'],['b','B']],['aBBaBBaB', 'AbaBBaB'])
-    copy_paste_to_nb([['a','A'],['b','B']],['aBBaBBaB', 'BabAbbA'])
-    copy_paste_to_nb([['a','A'],['b','B']],['aBBaBBaB', 'BaBaB'])
-    copy_paste_to_nb([['a','A'],['b','B']],['BBaBBaBa', 'AbAbb'])
-    copy_paste_to_nb([['a','A'],['b','B']],['BBa', 'AbAbb'])
-    copy_paste_to_nb([['a','A'],['b','B']],['BBa', 'Ab'])
-    copy_paste_to_nb([['a','A'],['b','B']],['B', 'Ab'])
-    copy_paste_to_nb([['a','A'],['b','B']],['B', 'A'])
+
 
 
 
