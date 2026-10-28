@@ -1,11 +1,6 @@
 import itertools
 import neuwirth as nw
-import sage.all # Needed to avoid circular dependencies
-from sage.groups.perm_gps.permgroup import PermutationGroup
-from sage.combinat.permutation import Permutation
-#from sage.rings.integer import Integer
-
-# Import SAGE tools here without circular conflict
+from permutation import Permutation, PermutationGroup
 
 def stream_permutations_mod_cyclic(lists):
         # Create a generator for the Cartesian product of adjusted permutations
@@ -113,7 +108,7 @@ def exists_2_spine(A,B,C):
         # Extend to a permutation that is compatible on the unbarred and barred elements
         re_ordering=bar_reflection(v_tab)
 
-        # Use the permutation class in SAGE
+        # Use the permutation class from permutation.py
         p=Permutation(re_ordering)
 
         # Check if this particular datum yields a thickening to a 3-manifold
