@@ -96,7 +96,11 @@ def first_half(lst):
     # Return the first half of the list
     return lst[:len(lst)//2]
 
-def exists_2_spine(A,B,C):
+def find_2_spine(A,B,C):
+    """Search the configurations in the same order as exists_2_spine and return the first one
+    that yields a spine as a pair (p, A') with p the reordering permutation and A' = p^-1 A p
+    the conjugated involution, or None if no configuration works."""
+
     # We make a list of the unbarred cycles of C (a partition of the unbarred elements)
     PC=[list(p) for p in first_half(C.to_cycles())]
 
@@ -113,49 +117,57 @@ def exists_2_spine(A,B,C):
 
         # Check if this particular datum yields a thickening to a 3-manifold
         # We are conjugating A with p to get another admissible A
-        
-        try: 
-            if L_One_Case(p.right_action_product(A).right_action_product(p.inverse()),B,C):
-                # Print the result
-                print('THE FOLLOWING CONFIGURATION YIELDS A SPINE:\n')
+        Ap=p.right_action_product(A).right_action_product(p.inverse())
 
-                # Print which reordering we used and show it
-                print('Reordering permutation: ', p)
-                p.show()
-
-                # Print the involution A we used
-                print('Involution A: ', p.right_action_product(A).right_action_product(p.inverse()))
-                p.right_action_product(A).right_action_product(p.inverse()).show()
-
-                return True
+        try:
+            if L_One_Case(Ap,B,C):
+                return p, Ap
 
         except:
-            if L_More_Than_One_Case(p.right_action_product(A).right_action_product(p.inverse()),B,C):
-                # Print the result
-                print('THE FOLLOWING CONFIGURATION YIELDS A SPINE:\n')
-
-                # Print which reordering we used and show it
-                print('Reordering permutation: ', p)
-                p.show()
-
-                # Print the involution A we used
-                print('Involution A: ', p.right_action_product(A).right_action_product(p.inverse()))
-                p.right_action_product(A).right_action_product(p.inverse()).show()
-
-                return True
+            if L_More_Than_One_Case(Ap,B,C):
+                return p, Ap
 
     # If no configuration works then there is no thickening to a 3-manifold
-    return False
+    return None
 
-def check_presentation(gen, rel):
-    """We take a balanced presentation as input. Ex: gen=[['a','A'],['b','B']] where A:=a^-1,
-    rel=['aaBBB','ABAbab']. Need the inputs to be arrays of strings."""
+def exists_2_spine(A,B,C):
+    found=find_2_spine(A,B,C)
+
+    if found is None:
+        return False
+
+    p, Ap = found
+
+    # Print the result
+    print('THE FOLLOWING CONFIGURATION YIELDS A SPINE:\n')
+
+    # Print which reordering we used and show it
+    print('Reordering permutation: ', p)
+    p.show()
+
+    # Print the involution A we used
+    print('Involution A: ', Ap)
+    Ap.show()
+
+    return True
+
+def neuwirth_data(gen, rel):
+    """The permutations (A, B, C) of Neuwirth's algorithm for a balanced presentation, in the
+    same input format as check_presentation."""
 
     prev = nw.prevalences(gen, rel)
 
     A = Permutation(nw.admissible(gen,rel))
     B = Permutation(nw.B(sum(prev)))
     C = Permutation(nw.C(prev,len(prev)))
+
+    return A, B, C
+
+def check_presentation(gen, rel):
+    """We take a balanced presentation as input. Ex: gen=[['a','A'],['b','B']] where A:=a^-1,
+    rel=['aaBBB','ABAbab']. Need the inputs to be arrays of strings."""
+
+    A, B, C = neuwirth_data(gen, rel)
 
     return exists_2_spine(A,B,C)
 
