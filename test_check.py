@@ -154,6 +154,7 @@ class DiagramTests(unittest.TestCase):
                               el.get("stroke") == "#222"]), 4)          # the four disks
         html = d.to_html()
         self.assertIn("&lt;a, b | b^-2 a, a^-1 b&gt;", html)
+        self.assertIn(r"\mathcal{P} = \langle a, b \mid b^{-2}a, a^{-1}b \rangle", html)   # the heading, for KaTeX
         tikz = d.to_tikz()
         self.assertIn("\\end{tikzpicture}", tikz)
         self.assertEqual(tikz.count("\\draw[disk]"), 4)

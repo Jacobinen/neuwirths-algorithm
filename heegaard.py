@@ -1427,10 +1427,16 @@ svg { max-width: 100%%; height: auto; display: block; }
 p { line-height: 1.45; }
 h2 { font-size: 1.1em; margin-top: 2em; }
 .details { color: #666; font-size: 0.9em; }
+h1 { font-size: 1.5em; line-height: 1.4; }
+h1 .katex { font-size: 1.05em; }
 </style>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"
+        onload="katex.render(document.getElementById('presentation').dataset.tex, document.getElementById('presentation'), {throwOnError: false})"></script>
 </head>
 <body>
-<h1>Heegaard diagram for %s</h1>
+<h1>Heegaard diagram for the closed 3-manifold thickening of the presentation complex of
+<span id="presentation" data-tex="%s">%s</span></h1>
 %s<figure>
 %s
 </figure>
@@ -1438,7 +1444,8 @@ h2 { font-size: 1.1em; margin-top: 2em; }
 <p class="details">%s</p>
 </body>
 </html>
-""" % (pres, pres, surface_block, self.to_svg(standalone=False),
+""" % (pres, html.escape(r"\mathcal{P} = " + self.presentation_text(latex=True), quote=True),
+       html.escape("P = " + self.presentation_text()), surface_block, self.to_svg(standalone=False),
        "\n".join("<p>%s</p>" % t for t in legend), details)
 
     # ----------------------------------------------------------------- TikZ
