@@ -3,6 +3,7 @@
 Run with ``uv run python -m unittest`` (about half a minute: the diagrams are laid out
 with a force-directed relaxation).
 """
+import math
 import os
 import subprocess
 import sys
@@ -12,6 +13,7 @@ import xml.etree.ElementTree as ET
 
 import check
 import heegaard
+import surface
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -156,6 +158,55 @@ class DiagramTests(unittest.TestCase):
         self.assertEqual(tikz.count("\\draw[disk]"), 4)
         self.assertEqual(tikz.count("\\draw[beta"), 5)
         self.assertEqual(d.presentation_text(latex=True), r"\langle a, b \mid b^{-2}a, a^{-1}b \rangle")
+
+
+class SurfaceTests(unittest.TestCase):
+
+    def _drawing(self, rels):
+        gens, rels = check.parse_presentation(rels)
+        d = heegaard.diagram_for_presentation(gens, rels, relax_iterations=120)
+        return d, surface.SurfaceDrawing(d)
+
+    def test_strands_match_the_planar_arcs(self):
+        for rels in (["BBa", "Ab"], ["BBa", "AbAbb"], ["B", "A"], ["a", "b", "c"]):
+            with self.subTest(rels=rels):
+                d, sd = self._drawing(rels)
+                self.assertEqual(len(sd.handles), d.g)
+                self.assertEqual(sum(len(h["strands"]) for h in sd.handles), sum(len(w) for w in rels))
+                self.assertEqual(len(sd.joins), d.L - 1)
+                for i, h in enumerate(sd.handles):
+                    tube = h["tube"]
+                    self.assertEqual(sorted(s["sheet"] for s in h["strands"]), list(range(1, d.prev[i] + 1)))
+                    # a strand starts at the point of the foot circle where the planar arc ends,
+                    # at both feet, and its twist is a lift of the difference of the two angles
+                    for s in h["strands"]:
+                        e = [e for e in d.vertex_darts[2 * i] if d.dart_info[e][1] == s["sheet"]][0]
+                        for foot, dart, pos in ((2 * i, e, 0.0), (2 * i + 1, d.B(e), math.pi)):
+                            phi = s["lift_p"] if pos == 0.0 else s["lift_p"] + s["twist"]
+                            x, y = tube.point(pos, phi)
+                            cx, cy = sd.feet[foot]
+                            ang = sd.dart_angle[dart]
+                            self.assertAlmostEqual(x, cx + sd.r * math.cos(ang), places=9)
+                            self.assertAlmostEqual(y, cy + sd.r * math.sin(ang), places=9)
+                        self.assertTrue(s["runs"])          # (a strand may run entirely behind the tube)
+                    # strands keep their cyclic order along the tube: lifted angles increase
+                    lifts = [s["lift_p"] for s in h["strands"]]
+                    self.assertEqual(lifts, sorted(lifts))
+                    ends = [s["lift_p"] + s["twist"] for s in h["strands"]]
+                    self.assertEqual(ends, sorted(ends))
+
+    def test_outputs(self):
+        d, sd = self._drawing(["BBa", "Ab"])
+        root = ET.fromstring(sd.to_svg())
+        self.assertTrue(root.tag.endswith("svg"))
+        texts = [el.text for el in root.iter() if el.tag.endswith("text") and el.text]
+        self.assertEqual(sum(1 for t in texts if t.startswith("\u03b1")), 2)       # alpha_a, alpha_b
+        tikz = sd.to_tikz()
+        self.assertIn("\\end{tikzpicture}", tikz)
+        self.assertEqual(tikz.count("alpha_{"), 2)
+        page = d.to_html()
+        self.assertIn("cut open along the", page)
+        self.assertEqual(page.count("<svg"), 2)
 
 
 if __name__ == "__main__":

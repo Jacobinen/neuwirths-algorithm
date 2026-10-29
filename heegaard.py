@@ -192,25 +192,25 @@ def _segments_cross(p1, p2, p3, p4):
     return d1 * d2 < 0 and d3 * d4 < 0
 
 
+def _chaikin(points, rounds=3):
+    """Chaikin's corner cutting: a smooth curve that stays inside the corridor of the
+    polyline (unlike a spline it never overshoots, so parallel strands stay apart)."""
+    pts = list(points)
+    if len(pts) < 3:
+        return pts
+    for _ in range(rounds):
+        out = [pts[0]]
+        for a, b in zip(pts, pts[1:]):
+            out.append((0.75 * a[0] + 0.25 * b[0], 0.75 * a[1] + 0.25 * b[1]))
+            out.append((0.25 * a[0] + 0.75 * b[0], 0.25 * a[1] + 0.75 * b[1]))
+        out.append(pts[-1])
+        pts = out
+    return pts
+
+
 def _catmull_rom(points, tension=0.5, samples=8):
-    """Sample a Catmull-Rom spline through ``points`` (polyline if there are only 2)."""
-    if len(points) < 3:
-        return list(points)
-    pts = [points[0]] + list(points) + [points[-1]]
-    out = [points[0]]
-    for i in range(1, len(pts) - 2):
-        p0, p1, p2, p3 = pts[i - 1], pts[i], pts[i + 1], pts[i + 2]
-        for s in range(1, samples + 1):
-            t = s / samples
-            t2, t3 = t * t, t * t * t
-            x = (2 * p1[0] + tension * (-p0[0] + p2[0]) * t
-                 + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * tension * t2
-                 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * tension * t3)
-            y = (2 * p1[1] + tension * (-p0[1] + p2[1]) * t
-                 + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * tension * t2
-                 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * tension * t3)
-            out.append((x / 2, y / 2))
-    return out
+    """Kept for compatibility: smoothing now uses Chaikin's corner cutting."""
+    return _chaikin(points)
 
 
 def _polyline_length(points):
@@ -258,7 +258,9 @@ class _Relaxer:
     angle around its disks and extra clearance."""
 
     def __init__(self, vertex_darts, vertex_of, arc_darts, vpos, angles, bends, port_radius, rho,
-                 lane_count=None):
+                 lane_count=None, partners=(), sheet_partner=None):
+        self.partners = {frozenset(pair) for pair in partners if len(set(pair)) == 2}
+        self.sheet_partner = sheet_partner or {}
         self.vertex_darts = {v: list(ds) for v, ds in vertex_darts.items()}
         self.vertex_of = vertex_of
         self.arc_darts = dict(arc_darts)
@@ -329,9 +331,24 @@ class _Relaxer:
     def _adjacent(self, idx, k, idx2, k2):
         return bool(set(self.segment_nodes(idx, k)) & set(self.segment_nodes(idx2, k2)))
 
+    def ends_ok(self, idx):
+        """Do both ends of the arc leave their disks outwards (first bend outside the
+        port circle and ahead of the port)?"""
+        pts = self.arc_points(idx)
+        for centre, port, bend, v in ((pts[0], pts[1], pts[2], self.arc_vertices[idx][0]),
+                                      (pts[6], pts[5], pts[4], self.arc_vertices[idx][1])):
+            r = self.port_radius[v]
+            if math.hypot(bend[0] - centre[0], bend[1] - centre[1]) <= 1.02 * r:
+                return False
+            if (bend[0] - port[0]) * (port[0] - centre[0]) + (bend[1] - port[1]) * (port[1] - centre[1]) <= 0:
+                return False
+        return True
+
     def valid(self, moved, segments):
         """Is the current drawing valid, checking only the segments in ``moved``?"""
         moved_set = set(moved)
+        if not all(self.ends_ok(idx) for idx in {idx for idx, k in moved}):
+            return False
         current = {}
         for (idx, k) in moved:
             pts = self.arc_points(idx)
@@ -360,6 +377,24 @@ class _Relaxer:
         return self.valid([(idx, k) for idx in self.arcs for k in range(6)], segments) and \
             all(self.rotation_ok(v) for v in self.vertices)
 
+    def self_crossing_bundles(self, lanes_of, edge_of):
+        """The bundles (keyed as in ``lanes_of``) two of whose strands cross each other."""
+        bundle_of = {}
+        for e1, lanes in lanes_of.items():
+            for lane in lanes:
+                bundle_of[edge_of[lane]] = e1
+        segments = self.segments()
+        bad = set()
+        for i in range(len(segments)):
+            idx, k, p, q = segments[i]
+            for j in range(i + 1, len(segments)):
+                idx2, k2, p2, q2 = segments[j]
+                if bundle_of.get(idx) != bundle_of.get(idx2) or self._adjacent(idx, k, idx2, k2):
+                    continue
+                if _segments_cross(p, q, p2, q2):
+                    bad.add(bundle_of[idx])
+        return bad
+
     def try_move(self, node, apply, undo, segments, touched_vertices):
         apply()
         moved = self.incident_segments(node)
@@ -381,18 +416,26 @@ class _Relaxer:
         to the nearest other node."""
         point = self.node_pos(node)
         inc = self.incident_segments(node)
-        inc_set = set(inc)
         best = float("inf")
         for idx, k, p, q in segments:
-            if (idx, k) not in inc_set:
-                best = min(best, _point_segment_distance(point, p, q))
+            # segments sharing a node with a moving segment touch it anyway
+            if any(self._adjacent(idx, k, idx2, k2) or (idx, k) == (idx2, k2) for idx2, k2 in inc):
+                continue
+            best = min(best, _point_segment_distance(point, p, q))
         own_nodes = set()
         for idx, k in inc:
             own_nodes |= set(self.segment_nodes(idx, k))
         for other in self.nodes:
-            if other in own_nodes:
+            if other == node:
                 continue
             op = self.node_pos(other)
+            # no node ever reaches another one (bends of one arc included) ...
+            dist = math.hypot(op[0] - point[0], op[1] - point[1])
+            if dist > 1e-9:
+                best = min(best, dist)
+            if other in own_nodes:
+                continue
+            # ... and no moving segment sweeps over a node
             for idx, k in inc:
                 pts = self.arc_points(idx)
                 best = min(best, _point_segment_distance(op, pts[k], pts[k + 1]))
@@ -417,10 +460,49 @@ class _Relaxer:
                 dx, dy = self.vpos[v][0] - self.vpos[w][0], self.vpos[v][1] - self.vpos[w][1]
                 d = math.hypot(dx, dy) + 1e-9
                 ideal = 5.0 * rho + 2.0 * widest.get((min(v, w), max(v, w)), 0.0)
-                if d < ideal:
+                if frozenset((v, w)) in self.partners:
+                    # the two feet of a handle: a spring, so that the handle is short
+                    ideal = 3.4 * rho + 2.0 * widest.get((min(v, w), max(v, w)), 0.0)
+                    f = 0.8 * (ideal - d) / d
+                    push(("V", v), f * dx, f * dy)
+                    push(("V", w), -f * dx, -f * dy)
+                elif d < ideal:
                     f = 0.5 * (ideal - d) / d
                     push(("V", v), f * dx, f * dy)
                     push(("V", w), -f * dx, -f * dy)
+        # the chords joining the two feet of a handle (where the handle will be drawn)
+        # keep clear of other disks and of each other, so that handles neither pass over
+        # other handles' feet nor cross
+        chords = [tuple(pair) for pair in self.partners if all(v in self.vpos for v in pair)]
+        for (a, b) in chords:
+            pa, pb = self.vpos[a], self.vpos[b]
+            for v in self.vertices:
+                if v in (a, b):
+                    continue
+                closest, t = _closest_point_on_segment(self.vpos[v], pa, pb)
+                dx, dy = self.vpos[v][0] - closest[0], self.vpos[v][1] - closest[1]
+                d = math.hypot(dx, dy)
+                clearance = 3.2 * rho
+                if 1e-12 < d < clearance:
+                    f = 0.6 * (clearance - d) / d
+                    push(("V", v), f * dx, f * dy)
+                    push(("V", a), -0.5 * f * (1 - t) * dx, -0.5 * f * (1 - t) * dy)
+                    push(("V", b), -0.5 * f * t * dx, -0.5 * f * t * dy)
+        for i, (a, b) in enumerate(chords):
+            for (c, e) in chords[i + 1:]:
+                ma = ((self.vpos[a][0] + self.vpos[b][0]) / 2, (self.vpos[a][1] + self.vpos[b][1]) / 2)
+                mc = ((self.vpos[c][0] + self.vpos[e][0]) / 2, (self.vpos[c][1] + self.vpos[e][1]) / 2)
+                la = math.hypot(self.vpos[a][0] - self.vpos[b][0], self.vpos[a][1] - self.vpos[b][1])
+                lc = math.hypot(self.vpos[c][0] - self.vpos[e][0], self.vpos[c][1] - self.vpos[e][1])
+                dx, dy = ma[0] - mc[0], ma[1] - mc[1]
+                d = math.hypot(dx, dy) + 1e-9
+                ideal = 0.5 * (la + lc) + 2.0 * rho
+                if d < ideal:
+                    f = 0.3 * (ideal - d) / d
+                    for v in (a, b):
+                        push(("V", v), f * dx, f * dy)
+                    for v in (c, e):
+                        push(("V", v), -f * dx, -f * dy)
         # bends are drawn to the midpoint of their neighbours: arcs become smooth and short
         for idx in self.arcs:
             pts = self.arc_points(idx)
@@ -465,6 +547,20 @@ class _Relaxer:
                     if 1e-12 < d < gap:
                         f = 0.4 * (gap - d) / d
                         push(("B", idx, k), f * (b[0] - closest[0]), f * (b[1] - closest[1]))
+        # the port of a sheet at a_i-bar mirrors the port of the same sheet at a_i across
+        # the chord of the handle, so that the strand over the handle need not twist
+        if self.sheet_partner:
+            for (a, b) in chords:
+                pa, pb = self.vpos[a], self.vpos[b]
+                theta_u = math.atan2(pb[1] - pa[1], pb[0] - pa[0])
+                for e in self.vertex_darts[a]:
+                    f = self.sheet_partner.get(e)
+                    if f is None or f not in self.angles:
+                        continue
+                    want_f = 2 * theta_u + math.pi - self.angles[e]
+                    diff = (want_f - self.angles[f] + math.pi) % (2 * math.pi) - math.pi
+                    push(("D", f), 0.3 * diff, 0.0)
+                    push(("D", e), -0.3 * diff, 0.0)
         # the ports of a disk spread out around it, fat edges taking a larger share
         for v in self.vertices:
             darts = self.vertex_darts[v]
@@ -842,8 +938,9 @@ class HeegaardDiagram:
         bends = {}
         for idx, (ea, eb) in r_arc_darts.items():
             bends[idx] = [pos[("VM", ea)], pos[("M", edge_of[ea])], pos[("VM", eb)]]
+        partners = [(2 * i, 2 * i + 1) for i in range(self.g)]
         reduced = _Relaxer(r_vertex_darts, self.vertex_of, r_arc_darts, vpos, angles, bends, port_radius,
-                           rho, lane_count)
+                           rho, lane_count, partners)
         reduced.run(iterations)
 
         # expand the bundles into strands
@@ -851,12 +948,19 @@ class HeegaardDiagram:
                           if arc["exit"] in set(comp)}
         full_vertex_darts = {v: self.vertex_darts[v] for v in vertices}
         delta = 0.8 * rho
+        straight = set()          # bundles whose fat edge is straightened before expansion
+        attempts = 0
         while True:
+            attempts += 1
             f_angles = {}
             f_bends = {}
             for e1, lanes in lanes_of.items():
                 k = len(lanes)
                 pts = reduced.arc_points(e1)[1:6]      # port, b1, b2, b3, port
+                if e1 in straight:
+                    p0, p4 = pts[0], pts[4]
+                    pts = [p0] + [(p0[0] + (p4[0] - p0[0]) * q / 4, p0[1] + (p4[1] - p0[1]) * q / 4)
+                                  for q in (1, 2, 3)] + [p4]
                 v, w = reduced.arc_vertices[e1]
                 rv, rw = reduced.port_radius[v], reduced.port_radius[w]
                 normals = []
@@ -891,10 +995,19 @@ class HeegaardDiagram:
                     f_bends[idx] = b if self.arcs[idx]["exit"] == lane else b[::-1]
                     f_angles[lane] = reduced.angles[e1] + t * dtheta_v
                     f_angles[self.Amap[lane]] = reduced.angles[Amap[e1]] - t * dtheta_w
+            sheet_partner = {e: self.B(e) for e in comp}
             full = _Relaxer(full_vertex_darts, self.vertex_of, full_arc_darts, dict(reduced.vpos), f_angles,
-                            f_bends, dict(reduced.port_radius), rho)
+                            f_bends, dict(reduced.port_radius), rho, partners=partners,
+                            sheet_partner=sheet_partner)
             if full.is_planar() or delta < 1e-7:
                 break
+            # a bundle whose strands cross each other has a fat edge that bends too sharply
+            # for the strand spacing: straighten it before shrinking the spacing
+            bad = full.self_crossing_bundles(lanes_of, self.edge_of)
+            fresh = bad - straight
+            if fresh and attempts < 8:
+                straight |= fresh
+                continue
             delta /= 2
         full.run(max(iterations // 2, 60))
         return vertices, full
@@ -982,7 +1095,7 @@ class HeegaardDiagram:
                 trimmed[end] = (cx + r * (nx - cx) / d, cy + r * (ny - cy) / d)
             curves[idx] = trimmed
         if smooth:
-            smoothed = {idx: _catmull_rom(pts) for idx, pts in curves.items()}
+            smoothed = {idx: _chaikin(pts) for idx, pts in curves.items()}
             if self._count_crossings(smoothed) == 0:
                 return smoothed
         return curves
@@ -1148,8 +1261,28 @@ class HeegaardDiagram:
 
     # ----------------------------------------------------------------- HTML
 
-    def to_html(self):
+    def to_html(self, surface=True):
+        """A web page with the diagram on the genus-g surface (unless ``surface`` is
+        false) and the cut-open planar diagram below it."""
         pres = html.escape(self.presentation_text())
+        surface_block = ""
+        if surface:
+            from surface import SurfaceDrawing
+            drawing = SurfaceDrawing(self)
+            surface_legend = (
+                "The handlebody is a ball with %d handle%s; the surface is its boundary. The belt circle of "
+                "the handle of the generator <i>a</i> is the curve &#945;<sub><i>a</i></sub> around the middle "
+                "of the tube (dashed where it runs behind the tube). The coloured curves are the "
+                "&#946;-curves, one per relator, read in the direction of the arrows: each letter of the "
+                "relator is a passage over the handle of that generator, crossing its belt circle once. "
+                "Cutting the surface along the &#946;-curves leaves it connected, which is what Neuwirth's "
+                "algorithm verified. Hidden parts are dashed." % (self.g, "" if self.g == 1 else "s"))
+            if self.L > 1:
+                surface_legend += (
+                    " The permutations A and C have %d orbits, so the ball is really %d balls joined by "
+                    "tubes without belt circles." % (self.L, self.L))
+            surface_block = "<figure>\n%s\n</figure>\n<p>%s</p>\n<h2>The same diagram cut open along the " \
+                            "&#945;-curves</h2>\n" % (drawing.to_svg(standalone=False), surface_legend)
         legend = [
             "The genus-%d surface is cut open along the &#945;-curves, which gives a sphere with %d disks "
             "removed. The boundary circles of the disks <i>a</i> and <i>a&#773;</i> are the two sides of the cut "
@@ -1179,19 +1312,21 @@ body { font-family: Helvetica, Arial, sans-serif; max-width: 1100px; margin: 2em
 figure { margin: 0; }
 svg { max-width: 100%%; height: auto; display: block; }
 p { line-height: 1.45; }
+h2 { font-size: 1.1em; margin-top: 2em; }
 .details { color: #666; font-size: 0.9em; }
 </style>
 </head>
 <body>
 <h1>Heegaard diagram for %s</h1>
-<figure>
+%s<figure>
 %s
 </figure>
 %s
 <p class="details">%s</p>
 </body>
 </html>
-""" % (pres, pres, self.to_svg(standalone=False), "\n".join("<p>%s</p>" % t for t in legend), details)
+""" % (pres, pres, surface_block, self.to_svg(standalone=False),
+       "\n".join("<p>%s</p>" % t for t in legend), details)
 
     # ----------------------------------------------------------------- TikZ
 
