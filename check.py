@@ -86,7 +86,9 @@ def main(argv=None):
                         help="the generators, e.g. 'abc' (default: the letters that occur)")
     parser.add_argument("--heegaard", action="store_true",
                         help="draw the Heegaard diagram of the spine found on the genus-g surface and open "
-                             "it in the browser (written to heegaard-<relators>.html in the current directory)")
+                             "it in the browser (written to heegaard-<relators>.html in the current directory; "
+                             "for genus at most 3 the surface is shown in space and can be turned around, "
+                             "which needs three.js from a CDN)")
     parser.add_argument("--svg", metavar="FILE", help="also write the Heegaard diagram as SVG")
     parser.add_argument("--tikz", metavar="FILE", help="also write the Heegaard diagram as a TikZ picture")
     parser.add_argument("--html", metavar="FILE", help="write the Heegaard diagram page to this file")
@@ -166,6 +168,8 @@ def main(argv=None):
             with open(html_path, "w", encoding="utf-8") as fh:
                 fh.write(diagram.to_html())
             written.append(html_path)
+            if not args.quiet and diagram.pretzel() is not None:
+                print("The page shows the surface in space (three.js from cdn.jsdelivr.net; drag to turn it).")
         for path in written:
             print("Wrote %s" % path)
         if args.heegaard and not args.no_open:

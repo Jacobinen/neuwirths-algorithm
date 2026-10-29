@@ -181,6 +181,12 @@ def _point_segment_distance(p, a, b):
     return math.hypot(p[0] - q[0], p[1] - q[1])
 
 
+def _segment_distance(p1, p2, p3, p4):
+    """Distance between two segments that do not cross."""
+    return min(_point_segment_distance(p1, p3, p4), _point_segment_distance(p2, p3, p4),
+               _point_segment_distance(p3, p1, p2), _point_segment_distance(p4, p1, p2))
+
+
 def _segments_cross(p1, p2, p3, p4):
     """Proper crossing of the segments p1p2 and p3p4 (touching endpoints do not count)."""
     def orient(a, b, c):
@@ -344,8 +350,19 @@ class _Relaxer:
                 return False
         return True
 
-    def valid(self, moved, segments):
-        """Is the current drawing valid, checking only the segments in ``moved``?"""
+    def clear_of_disk(self, v, idx, k, p, q):
+        """Does the segment k of the arc idx (from p to q) stay outside the port circle
+        of the disk v?  The stubs and the first segments of the disk's own arcs touch
+        the circle by construction and are not tested."""
+        if v in self.arc_vertices[idx] and k in (0, 1, 4, 5):
+            return True
+        cx, cy = self.vpos[v]
+        return _point_segment_distance((cx, cy), p, q) >= self.port_radius[v] + self.width[idx]
+
+    def valid(self, moved, segments, circles=()):
+        """Is the current drawing valid, checking only the segments in ``moved`` (and,
+        for the disks in ``circles``, whose port circle moved or grew, every segment
+        against that circle)?"""
         moved_set = set(moved)
         if not all(self.ends_ok(idx) for idx in {idx for idx, k in moved}):
             return False
@@ -353,13 +370,47 @@ class _Relaxer:
         for (idx, k) in moved:
             pts = self.arc_points(idx)
             current[(idx, k)] = (pts[k], pts[k + 1])
-        # moved segments against the unmoved ones ...
+        # no segment runs through a port circle
         for (idx, k), (p, q) in current.items():
+            for v in self.vertices:
+                cx, cy = self.vpos[v]
+                r = self.port_radius[v]
+                if (p[0] < cx - r and q[0] < cx - r) or (p[0] > cx + r and q[0] > cx + r) or \
+                        (p[1] < cy - r and q[1] < cy - r) or (p[1] > cy + r and q[1] > cy + r):
+                    continue
+                if not self.clear_of_disk(v, idx, k, p, q):
+                    return False
+        for v in circles:
+            cx, cy = self.vpos[v]
+            r = self.port_radius[v]
+            for (idx, k, p, q) in segments:
+                if (p[0] < cx - r and q[0] < cx - r) or (p[0] > cx + r and q[0] > cx + r) or \
+                        (p[1] < cy - r and q[1] < cy - r) or (p[1] > cy + r and q[1] > cy + r):
+                    continue
+                if (idx, k) not in moved_set and not self.clear_of_disk(v, idx, k, p, q):
+                    return False
+        # moved segments against the unmoved ones: no crossings, and no two segments
+        # closer than a small gap (a node on a segment would block every later move)
+        # unless the move widened that gap ...
+        gap = 0.05 * self.rho
+        before = {(idx, k): (p, q) for (idx, k, p, q) in segments}
+        for (idx, k), (p, q) in current.items():
+            x0, x1 = min(p[0], q[0]) - gap, max(p[0], q[0]) + gap
+            y0, y1 = min(p[1], q[1]) - gap, max(p[1], q[1]) + gap
             for (idx2, k2, p2, q2) in segments:
+                # bounding boxes first: most pairs are far apart
+                if (p2[0] < x0 and q2[0] < x0) or (p2[0] > x1 and q2[0] > x1) or \
+                        (p2[1] < y0 and q2[1] < y0) or (p2[1] > y1 and q2[1] > y1):
+                    continue
                 if (idx2, k2) in moved_set or self._adjacent(idx, k, idx2, k2):
                     continue
                 if _segments_cross(p, q, p2, q2):
                     return False
+                d = _segment_distance(p, q, p2, q2)
+                if d < gap:
+                    old = before.get((idx, k))
+                    if old is None or d < _segment_distance(old[0], old[1], p2, q2) * (1 - 1e-9):
+                        return False
         # ... and against each other (the stubs and first segments of one disk, say)
         items = list(current.items())
         for i in range(len(items)):
@@ -370,11 +421,17 @@ class _Relaxer:
                     continue
                 if _segments_cross(p, q, p2, q2):
                     return False
+                d = _segment_distance(p, q, p2, q2)
+                if d < gap:
+                    old, old2 = before.get((idx, k)), before.get((idx2, k2))
+                    if old is None or old2 is None or \
+                            d < _segment_distance(old[0], old[1], old2[0], old2[1]) * (1 - 1e-9):
+                        return False
         return True
 
     def is_planar(self):
         segments = self.segments()
-        return self.valid([(idx, k) for idx in self.arcs for k in range(6)], segments) and \
+        return self.valid([(idx, k) for idx in self.arcs for k in range(6)], segments, self.vertices) and \
             all(self.rotation_ok(v) for v in self.vertices)
 
     def self_crossing_bundles(self, lanes_of, edge_of):
@@ -398,7 +455,7 @@ class _Relaxer:
     def try_move(self, node, apply, undo, segments, touched_vertices):
         apply()
         moved = self.incident_segments(node)
-        if self.valid(moved, segments) and all(self.rotation_ok(v) for v in touched_vertices):
+        if self.valid(moved, segments, touched_vertices) and all(self.rotation_ok(v) for v in touched_vertices):
             return True
         undo()
         return False
@@ -439,7 +496,8 @@ class _Relaxer:
             for idx, k in inc:
                 pts = self.arc_points(idx)
                 best = min(best, _point_segment_distance(op, pts[k], pts[k + 1]))
-        return 0.45 * best
+        # never stuck completely: a tiny step is harmless (it is checked for validity)
+        return max(0.45 * best, 0.002 * self.rho)
 
     # -- forces
     def forces(self, segments):
@@ -576,6 +634,17 @@ class _Relaxer:
                     f = 0.5 * (want - g)
                     push(("D", e1), -f, 0.0)
                     push(("D", e2), f, 0.0)
+        # disks like to sit on a common circle around their centroid (convex position,
+        # the arcs inside): the three-dimensional picture needs it, and it reads well
+        if len(self.vertices) >= 3:
+            mx = sum(self.vpos[v][0] for v in self.vertices) / len(self.vertices)
+            my = sum(self.vpos[v][1] for v in self.vertices) / len(self.vertices)
+            dist = {v: math.hypot(self.vpos[v][0] - mx, self.vpos[v][1] - my) for v in self.vertices}
+            mean = sum(dist.values()) / len(dist)
+            for v in self.vertices:
+                if dist[v] > 1e-9:
+                    f = 0.3 * (mean - dist[v]) / dist[v]
+                    push(("V", v), f * (self.vpos[v][0] - mx), f * (self.vpos[v][1] - my))
         # weak centring keeps the drawing from drifting
         for v in self.vertices:
             x, y = self.vpos[v]
@@ -661,7 +730,7 @@ class _Relaxer:
                 if new <= r:
                     continue
                 self.port_radius[v] = new
-                if not self.valid(self.incident_segments(("V", v)), segments):
+                if not self.valid(self.incident_segments(("V", v)), segments, [v]):
                     self.port_radius[v] = r
                 else:
                     moved = max(moved, (new - r) / r)
@@ -1014,9 +1083,15 @@ class HeegaardDiagram:
 
     def _layout(self, ci):
         comp = self.components[ci]
-        comp_faces = sorted({self.face_of[e] for e in comp}, key=lambda fi: (-len(self.faces[fi]), fi))
         rho = 0.12
         vertices, relaxer = self._relaxed_drawing(comp, rho, self.relax_iterations)
+        return self._normalised_layout(ci, relaxer)
+
+    def _normalised_layout(self, ci, relaxer):
+        comp = self.components[ci]
+        vertices = relaxer.vertices
+        rho = relaxer.rho
+        comp_faces = sorted({self.face_of[e] for e in comp}, key=lambda fi: (-len(self.faces[fi]), fi))
 
         # rotate so that the longest extent is horizontal (a rotation keeps the
         # orientation), then normalise to the unit box
@@ -1095,9 +1170,10 @@ class HeegaardDiagram:
                 trimmed[end] = (cx + r * (nx - cx) / d, cy + r * (ny - cy) / d)
             curves[idx] = trimmed
         if smooth:
-            smoothed = {idx: _chaikin(pts) for idx, pts in curves.items()}
-            if self._count_crossings(smoothed) == 0:
-                return smoothed
+            for rounds in (3, 2, 1):
+                smoothed = {idx: _chaikin(pts, rounds) for idx, pts in curves.items()}
+                if self._count_crossings(smoothed) == 0:
+                    return smoothed
         return curves
 
     @staticmethod
@@ -1261,28 +1337,65 @@ class HeegaardDiagram:
 
     # ----------------------------------------------------------------- HTML
 
+    def pretzel(self):
+        """The three-dimensional picture of the diagram (``pretzel.Pretzel``), or None
+        when there is none: it needs a connected diagram (L = 1) of genus at most 3."""
+        if self.L != 1 or self.g > 3:
+            return None
+        if not hasattr(self, "_pretzel"):
+            import pretzel
+            try:
+                self._pretzel = pretzel.Pretzel(self)
+            except ValueError:
+                self._pretzel = None
+        return self._pretzel
+
     def to_html(self, surface=True):
         """A web page with the diagram on the genus-g surface (unless ``surface`` is
-        false) and the cut-open planar diagram below it."""
+        false) and the cut-open planar diagram below it: for a connected diagram of
+        genus at most 3 the surface is rendered in space (three.js, from a CDN) and can
+        be turned around; otherwise it is the drawing of a ball with handles."""
         pres = html.escape(self.presentation_text())
         surface_block = ""
         if surface:
-            from surface import SurfaceDrawing
-            drawing = SurfaceDrawing(self)
-            surface_legend = (
-                "The handlebody is a ball with %d handle%s; the surface is its boundary. The belt circle of "
-                "the handle of the generator <i>a</i> is the curve &#945;<sub><i>a</i></sub> around the middle "
-                "of the tube (dashed where it runs behind the tube). The coloured curves are the "
-                "&#946;-curves, one per relator, read in the direction of the arrows: each letter of the "
-                "relator is a passage over the handle of that generator, crossing its belt circle once. "
-                "Cutting the surface along the &#946;-curves leaves it connected, which is what Neuwirth's "
-                "algorithm verified. Hidden parts are dashed." % (self.g, "" if self.g == 1 else "s"))
-            if self.L > 1:
-                surface_legend += (
-                    " The permutations A and C have %d orbits, so the ball is really %d balls joined by "
-                    "tubes without belt circles." % (self.L, self.L))
+            picture = self.pretzel()
+            if picture is not None:
+                from surface import SurfaceDrawing
+                static = SurfaceDrawing(self).to_svg(standalone=False)
+                figure = picture.to_html_fragment(fallback=(
+                    '<p style="font:13px sans-serif;color:#666;margin:8px 12px">The picture in space needs '
+                    'three.js from cdn.jsdelivr.net and WebGL; until it is drawn, here is the surface as a '
+                    'ball with handles.</p>' + static))
+                surface_legend = (
+                    "The surface of genus %d in space: the handlebody is a round body with %d handle%s "
+                    "around it, blended into one smooth surface; drag the picture to turn it. The belt "
+                    "circle of the handle of the generator <i>a</i> is the thin curve &#945;<sub><i>a</i></sub> "
+                    "half way round the handle. The coloured curves are the &#946;-curves, one per relator, "
+                    "read in the direction of the arrows: each letter of the relator is a passage along the "
+                    "handle of that generator, crossing its belt circle once, and the dot marks the basepoint. "
+                    "Cutting the surface along the &#946;-curves leaves it connected, which is what Neuwirth's "
+                    "algorithm verified." % (self.g, self.g, "" if self.g == 1 else "s"))
+                if not picture.flat:
+                    surface_legend += (
+                        " (The feet of the handles are where the planar diagram below puts the disks; they "
+                        "did not all fit on one circle here, so some handles stand out of the plane.)")
+            else:
+                from surface import SurfaceDrawing
+                figure = SurfaceDrawing(self).to_svg(standalone=False)
+                surface_legend = (
+                    "The handlebody is a ball with %d handle%s; the surface is its boundary. The belt circle "
+                    "of the handle of the generator <i>a</i> is the curve &#945;<sub><i>a</i></sub> around the "
+                    "middle of the tube (dashed where it runs behind the tube). The coloured curves are the "
+                    "&#946;-curves, one per relator, read in the direction of the arrows: each letter of the "
+                    "relator is a passage over the handle of that generator, crossing its belt circle once. "
+                    "Cutting the surface along the &#946;-curves leaves it connected, which is what Neuwirth's "
+                    "algorithm verified. Hidden parts are dashed." % (self.g, "" if self.g == 1 else "s"))
+                if self.L > 1:
+                    surface_legend += (
+                        " The permutations A and C have %d orbits, so the ball is really %d balls joined by "
+                        "tubes without belt circles." % (self.L, self.L))
             surface_block = "<figure>\n%s\n</figure>\n<p>%s</p>\n<h2>The same diagram cut open along the " \
-                            "&#945;-curves</h2>\n" % (drawing.to_svg(standalone=False), surface_legend)
+                            "&#945;-curves</h2>\n" % (figure, surface_legend)
         legend = [
             "The genus-%d surface is cut open along the &#945;-curves, which gives a sphere with %d disks "
             "removed. The boundary circles of the disks <i>a</i> and <i>a&#773;</i> are the two sides of the cut "

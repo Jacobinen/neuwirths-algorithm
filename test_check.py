@@ -13,6 +13,7 @@ import xml.etree.ElementTree as ET
 
 import check
 import heegaard
+import pretzel
 import surface
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -206,6 +207,72 @@ class SurfaceTests(unittest.TestCase):
         self.assertEqual(tikz.count("alpha_{"), 2)
         page = d.to_html()
         self.assertIn("cut open along the", page)
+        self.assertEqual(page.count("<svg"), 2)
+
+
+class PretzelTests(unittest.TestCase):
+
+    def test_hoop_geometry(self):
+        P = (math.cos(0.4), math.sin(0.4), 0.0)
+        Q = (math.cos(2.1), math.sin(2.1), 0.0)
+        h = pretzel.Hoop(P, Q, 0.2)
+        self.assertLess(math.dist(h.centre(0.0), P), 1e-9)
+        self.assertLess(math.dist(h.centre(h.length), Q), 1e-9)
+        self.assertAlmostEqual(h.radius(0.0), 0.2)
+        self.assertAlmostEqual(h.radius(h.length / 2), h.r)
+        for k in range(1, 10):
+            s = h.length * k / 10
+            for phi in (0.3, 2.0, 4.5):
+                p = h.point(s, phi)
+                dist, s2 = h.distance(p)
+                self.assertAlmostEqual(dist, h.radius(s), places=9)
+                self.assertAlmostEqual(s2, s, places=9)
+                direction = pretzel._add(p, h.centre(s), -1.0)
+                self.assertAlmostEqual((h.angle_of(s, direction) - phi + math.pi) % (2 * math.pi) - math.pi, 0.0, places=9)
+        # the hoop lies in the plane of the equator: all of it has z = 0
+        self.assertLess(max(abs(h.centre(h.length * k / 20)[2]) for k in range(21)), 1e-9)
+
+    def test_pictures(self):
+        for rels, flat in ((["BBa", "Ab"], True), (["B", "Ab"], True), (["aab", "bbA"], None)):
+            with self.subTest(rels=rels):
+                gens, rels = check.parse_presentation(rels)
+                d = heegaard.diagram_for_presentation(gens, rels, relax_iterations=120)
+                picture = pretzel.Pretzel(d)
+                if flat is not None:
+                    self.assertEqual(picture.flat, flat)
+                self.assertEqual(len(picture.hoops), d.g)
+                self.assertEqual(len(picture.alpha), d.g)
+                self.assertEqual(sum(len(st) for st in picture.strands), sum(len(w) for w in rels))
+                # the beta-curves are closed chains of arcs and strands, one strand per letter,
+                # lying on the surface
+                for r, pieces in enumerate(picture.beta):
+                    self.assertEqual(len(pieces), 2 * len(rels[r]))
+                    for a, b in zip(pieces, pieces[1:] + pieces[:1]):
+                        self.assertLess(math.dist(a["points"][-1], b["points"][0]), 1e-9)
+                    for piece in pieces:
+                        for p in piece["points"]:
+                            self.assertLess(abs(picture.field(p)), 0.1)
+                # each strand twists by at most the allowed amount around its hoop
+                for st in picture.strands:
+                    for s in st.values():
+                        self.assertLessEqual(abs(s["twist"]), pretzel.MAX_TWIST + 0.4)
+                # the surface has the right genus
+                self.assertEqual(picture.genus(h=0.16), d.g)
+
+    def test_page(self):
+        gens, rels = check.parse_presentation(["BBa", "Ab"])
+        d = heegaard.diagram_for_presentation(gens, rels, relax_iterations=120)
+        page = d.to_html()
+        self.assertIn("pretzel-viewer", page)
+        self.assertIn("three.module.js", page)
+        self.assertIn("cut open along the", page)
+        self.assertEqual(page.count("<svg"), 2)          # the fallback drawing and the planar diagram
+        # a diagram with several components keeps the drawing of a ball with handles
+        gens, rels = check.parse_presentation(["a", "b", "c"])
+        d = heegaard.diagram_for_presentation(gens, rels, relax_iterations=120)
+        self.assertIsNone(d.pretzel())
+        page = d.to_html()
+        self.assertNotIn("pretzel-viewer", page)
         self.assertEqual(page.count("<svg"), 2)
 
 
