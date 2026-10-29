@@ -85,11 +85,16 @@ def main(argv=None):
     parser.add_argument("-g", "--generators", metavar="LETTERS",
                         help="the generators, e.g. 'abc' (default: the letters that occur)")
     parser.add_argument("--heegaard", action="store_true",
-                        help="draw the Heegaard diagram of the spine found and open it in the browser "
-                             "(written to heegaard-<relators>.html in the current directory)")
+                        help="draw the Heegaard diagram of the spine found on the genus-g surface and open "
+                             "it in the browser (written to heegaard-<relators>.html in the current directory; "
+                             "for genus at most 3 the surface is shown in space and can be turned around, "
+                             "which needs three.js from a CDN)")
     parser.add_argument("--svg", metavar="FILE", help="also write the Heegaard diagram as SVG")
     parser.add_argument("--tikz", metavar="FILE", help="also write the Heegaard diagram as a TikZ picture")
     parser.add_argument("--html", metavar="FILE", help="write the Heegaard diagram page to this file")
+    parser.add_argument("--planar", action="store_true",
+                        help="with --svg/--tikz: the planar diagram (surface cut open along the alpha-curves) "
+                             "instead of the drawing on the surface")
     parser.add_argument("--no-open", action="store_true", help="with --heegaard: do not open the browser")
     parser.add_argument("-q", "--quiet", action="store_true", help="print only the verdict")
     args = parser.parse_args(argv)
@@ -143,13 +148,18 @@ def main(argv=None):
                 len(diagram.faces), "" if len(diagram.faces) == 1 else "s",
                 "" if diagram.crossings() == 0 else "; WARNING: the drawing has crossings"))
         written = []
+        if args.planar:
+            renderer = diagram
+        else:
+            from surface import SurfaceDrawing
+            renderer = SurfaceDrawing(diagram)
         if args.svg:
             with open(args.svg, "w", encoding="utf-8") as fh:
-                fh.write(diagram.to_svg())
+                fh.write(renderer.to_svg())
             written.append(args.svg)
         if args.tikz:
             with open(args.tikz, "w", encoding="utf-8") as fh:
-                fh.write(diagram.to_tikz())
+                fh.write(renderer.to_tikz())
             written.append(args.tikz)
         html_path = args.html
         if args.heegaard and html_path is None:
@@ -158,6 +168,8 @@ def main(argv=None):
             with open(html_path, "w", encoding="utf-8") as fh:
                 fh.write(diagram.to_html())
             written.append(html_path)
+            if not args.quiet and diagram.pretzel() is not None:
+                print("The page shows the surface in space (three.js from cdn.jsdelivr.net; drag to turn it).")
         for path in written:
             print("Wrote %s" % path)
         if args.heegaard and not args.no_open:

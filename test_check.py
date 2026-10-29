@@ -3,6 +3,7 @@
 Run with ``uv run python -m unittest`` (about half a minute: the diagrams are laid out
 with a force-directed relaxation).
 """
+import math
 import os
 import subprocess
 import sys
@@ -12,6 +13,8 @@ import xml.etree.ElementTree as ET
 
 import check
 import heegaard
+import pretzel
+import surface
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -156,6 +159,121 @@ class DiagramTests(unittest.TestCase):
         self.assertEqual(tikz.count("\\draw[disk]"), 4)
         self.assertEqual(tikz.count("\\draw[beta"), 5)
         self.assertEqual(d.presentation_text(latex=True), r"\langle a, b \mid b^{-2}a, a^{-1}b \rangle")
+
+
+class SurfaceTests(unittest.TestCase):
+
+    def _drawing(self, rels):
+        gens, rels = check.parse_presentation(rels)
+        d = heegaard.diagram_for_presentation(gens, rels, relax_iterations=120)
+        return d, surface.SurfaceDrawing(d)
+
+    def test_strands_match_the_planar_arcs(self):
+        for rels in (["BBa", "Ab"], ["BBa", "AbAbb"], ["B", "A"], ["a", "b", "c"]):
+            with self.subTest(rels=rels):
+                d, sd = self._drawing(rels)
+                self.assertEqual(len(sd.handles), d.g)
+                self.assertEqual(sum(len(h["strands"]) for h in sd.handles), sum(len(w) for w in rels))
+                self.assertEqual(len(sd.joins), d.L - 1)
+                for i, h in enumerate(sd.handles):
+                    tube = h["tube"]
+                    self.assertEqual(sorted(s["sheet"] for s in h["strands"]), list(range(1, d.prev[i] + 1)))
+                    # a strand starts at the point of the foot circle where the planar arc ends,
+                    # at both feet, and its twist is a lift of the difference of the two angles
+                    for s in h["strands"]:
+                        e = [e for e in d.vertex_darts[2 * i] if d.dart_info[e][1] == s["sheet"]][0]
+                        for foot, dart, pos in ((2 * i, e, 0.0), (2 * i + 1, d.B(e), math.pi)):
+                            phi = s["lift_p"] if pos == 0.0 else s["lift_p"] + s["twist"]
+                            x, y = tube.point(pos, phi)
+                            cx, cy = sd.feet[foot]
+                            ang = sd.dart_angle[dart]
+                            self.assertAlmostEqual(x, cx + sd.r * math.cos(ang), places=9)
+                            self.assertAlmostEqual(y, cy + sd.r * math.sin(ang), places=9)
+                        self.assertTrue(s["runs"])          # (a strand may run entirely behind the tube)
+                    # strands keep their cyclic order along the tube: lifted angles increase
+                    lifts = [s["lift_p"] for s in h["strands"]]
+                    self.assertEqual(lifts, sorted(lifts))
+                    ends = [s["lift_p"] + s["twist"] for s in h["strands"]]
+                    self.assertEqual(ends, sorted(ends))
+
+    def test_outputs(self):
+        d, sd = self._drawing(["BBa", "Ab"])
+        root = ET.fromstring(sd.to_svg())
+        self.assertTrue(root.tag.endswith("svg"))
+        texts = [el.text for el in root.iter() if el.tag.endswith("text") and el.text]
+        self.assertEqual(sum(1 for t in texts if t.startswith("\u03b1")), 2)       # alpha_a, alpha_b
+        tikz = sd.to_tikz()
+        self.assertIn("\\end{tikzpicture}", tikz)
+        self.assertEqual(tikz.count("alpha_{"), 2)
+        page = d.to_html()
+        self.assertIn("cut open along the", page)
+        self.assertEqual(page.count("<svg"), 2)
+
+
+class PretzelTests(unittest.TestCase):
+
+    def test_hoop_geometry(self):
+        P = (math.cos(0.4), math.sin(0.4), 0.0)
+        Q = (math.cos(2.1), math.sin(2.1), 0.0)
+        h = pretzel.Hoop(P, Q, 0.2)
+        self.assertLess(math.dist(h.centre(0.0), P), 1e-9)
+        self.assertLess(math.dist(h.centre(h.length), Q), 1e-9)
+        self.assertAlmostEqual(h.radius(0.0), 0.2)
+        self.assertAlmostEqual(h.radius(h.length / 2), h.r)
+        for k in range(1, 10):
+            s = h.length * k / 10
+            for phi in (0.3, 2.0, 4.5):
+                p = h.point(s, phi)
+                dist, s2 = h.distance(p)
+                self.assertAlmostEqual(dist, h.radius(s), places=9)
+                self.assertAlmostEqual(s2, s, places=9)
+                direction = pretzel._add(p, h.centre(s), -1.0)
+                self.assertAlmostEqual((h.angle_of(s, direction) - phi + math.pi) % (2 * math.pi) - math.pi, 0.0, places=9)
+        # the hoop lies in the plane of the equator: all of it has z = 0
+        self.assertLess(max(abs(h.centre(h.length * k / 20)[2]) for k in range(21)), 1e-9)
+
+    def test_pictures(self):
+        for rels, flat in ((["BBa", "Ab"], True), (["B", "Ab"], True), (["aab", "bbA"], None)):
+            with self.subTest(rels=rels):
+                gens, rels = check.parse_presentation(rels)
+                d = heegaard.diagram_for_presentation(gens, rels, relax_iterations=120)
+                picture = pretzel.Pretzel(d)
+                if flat is not None:
+                    self.assertEqual(picture.flat, flat)
+                self.assertEqual(len(picture.hoops), d.g)
+                self.assertEqual(len(picture.alpha), d.g)
+                self.assertEqual(sum(len(st) for st in picture.strands), sum(len(w) for w in rels))
+                # the beta-curves are closed chains of arcs and strands, one strand per letter,
+                # lying on the surface
+                for r, pieces in enumerate(picture.beta):
+                    self.assertEqual(len(pieces), 2 * len(rels[r]))
+                    for a, b in zip(pieces, pieces[1:] + pieces[:1]):
+                        self.assertLess(math.dist(a["points"][-1], b["points"][0]), 1e-9)
+                    for piece in pieces:
+                        for p in piece["points"]:
+                            self.assertLess(abs(picture.field(p)), 0.1)
+                # each strand twists by at most the allowed amount around its hoop
+                for st in picture.strands:
+                    for s in st.values():
+                        self.assertLessEqual(abs(s["twist"]), pretzel.MAX_TWIST + 0.4)
+                # the surface has the right genus
+                self.assertEqual(picture.genus(h=0.16), d.g)
+
+    def test_page(self):
+        gens, rels = check.parse_presentation(["BBa", "Ab"])
+        d = heegaard.diagram_for_presentation(gens, rels, relax_iterations=120)
+        page = d.to_html()
+        self.assertIn("pretzel-viewer", page)
+        self.assertIn("three.module.js", page)
+        self.assertIn("cut open along the", page)
+        self.assertEqual(page.count("<svg"), 2)          # the fallback drawing and the planar diagram
+        # a diagram with several components keeps the drawing of a ball with handles
+        gens, rels = check.parse_presentation(["a", "b", "c"])
+        d = heegaard.diagram_for_presentation(gens, rels, relax_iterations=120)
+        self.assertIsNone(d.pretzel())
+        page = d.to_html()
+        self.assertNotIn("pretzel-viewer", page)
+        self.assertEqual(page.count("<svg"), 2)
 
 
 if __name__ == "__main__":
