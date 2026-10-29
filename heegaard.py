@@ -1427,8 +1427,8 @@ svg { max-width: 100%%; height: auto; display: block; }
 p { line-height: 1.45; }
 h2 { font-size: 1.1em; margin-top: 2em; }
 .details { color: #666; font-size: 0.9em; }
-h1 { font-size: 1.5em; line-height: 1.4; margin-bottom: 0.2em; }
-h1 .presentation { display: block; margin-top: 0.35em; font-weight: normal; }
+h1 { font-size: 1.5em; line-height: 1.4; margin-bottom: 1.2em; }
+h1 .presentation { display: block; margin-top: 0.4em; font-weight: normal; text-align: center; }
 h1 .katex { font-size: 1.1em; }
 </style>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
@@ -1436,7 +1436,7 @@ h1 .katex { font-size: 1.1em; }
         onload="katex.render(document.getElementById('presentation').dataset.tex, document.getElementById('presentation'), {throwOnError: false})"></script>
 </head>
 <body>
-<h1>Heegaard diagram for the closed 3-manifold thickening of the presentation complex of
+<h1>Heegaard diagram for a closed 3-manifold thickening of the presentation complex of
 <span id="presentation" class="presentation" data-tex="%s">%s</span></h1>
 %s<figure>
 %s
