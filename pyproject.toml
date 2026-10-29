@@ -1,0 +1,8 @@
+[project]
+name = "neuwirths-algorithm"
+version = "0.2.0"
+description = "Neuwirth's algorithm: decide whether the presentation complex of a balanced group presentation is a spine of a closed orientable 3-manifold, and draw the corresponding Heegaard diagram"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+dependencies = []

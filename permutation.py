@@ -20,9 +20,6 @@ unchanged apart from its imports:
     takes the *last* point of each orbit.
 """
 
-import itertools
-
-
 class Permutation:
     """A permutation of ``{1, ..., n}`` stored in one-line notation.
 

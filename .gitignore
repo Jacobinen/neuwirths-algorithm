@@ -1,0 +1,10 @@
+# uv virtual environment
+.venv/
+
+# Python bytecode and notebook checkpoints
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Heegaard diagrams written by `check.py --heegaard`
+heegaard-*.html
